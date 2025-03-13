@@ -1,0 +1,187 @@
+import pandas as pd
+from fuzzywuzzy import process
+from sentence_transformers import SentenceTransformer, util
+from keybert import KeyBERT
+
+# Load NLP models
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+kw_model = KeyBERT()
+
+def load_dataset(file_path):
+    """Loads the dataset from a CSV file."""
+    try:
+        data = pd.read_csv(file_path)
+        required_columns = ["Grade Level", "Subjects", "Program Name", "Universities", "Description", "For Specific Students"]
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        if missing_columns:
+            raise ValueError(f"Dataset must contain columns: {missing_columns}")
+        return data
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        exit(1)
+
+def clean_text(text):
+    """Removes brackets, quotes, and extra spaces from text."""
+    return text.replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
+
+def preprocess_dataset(dataset):
+    """Cleans dataset by normalizing Grade Level, Subjects, and Gender."""
+    dataset["Grade Level"] = dataset["Grade Level"].astype(str).apply(lambda x: [clean_text(s) for s in x.split(",")])
+    dataset["Subjects"] = dataset["Subjects"].astype(str).apply(lambda x: [clean_text(s) for s in x.split(",")])
+    dataset["Description"] = dataset["Description"].astype(str).apply(clean_text)
+    dataset["For Specific Students"] = dataset["For Specific Students"].astype(str).apply(clean_text)
+    return dataset
+
+def filter_gender(dataset, user_gender):
+    """
+    Filters out programs that are not available to the user's gender.
+
+    Parameters:
+    dataset (pd.DataFrame): The full dataset of programs.
+    user_gender (str): The gender of the user ("Male", "Female", "Other").
+
+    Returns:
+    pd.DataFrame: The dataset excluding programs that do not match the user's gender.
+    """
+    user_gender = user_gender.lower().strip()
+
+    if user_gender == "male":
+        dataset = dataset[dataset["For Specific Students"] != "Women"]
+    
+    elif user_gender == "other":
+        specify_gender = input("Please specify your gender identity: ").strip().lower()
+        print(f"Noted. You will be considered under '{specify_gender}' identity.")
+        dataset = dataset[dataset["For Specific Students"] != "Women"]
+
+    return dataset
+
+def fuzzy_match(query, choices, threshold=80):
+    """Finds the closest match from choices using fuzzy matching."""
+    if not choices:
+        return None
+    match, score = process.extractOne(query, choices)
+    return match if score >= threshold else None
+
+def filter_programs(grade_level, subjects, dataset):
+    """
+    Filters programs based on the given grade level and subjects.
+
+    Parameters:
+    grade_level (str): The user's grade level.
+    subjects (list): List of subjects the user is interested in.
+    dataset (pd.DataFrame): The dataset containing program information.
+
+    Returns:
+    pd.DataFrame: Filtered programs matching the criteria.
+    """
+    grade_level = clean_text(grade_level)
+
+    # Fuzzy match grade level
+    possible_grades = set(grade for grades in dataset["Grade Level"] for grade in grades)
+    matched_grade = fuzzy_match(grade_level, possible_grades)
+
+    if not matched_grade:
+        print(f"Warning: No close match found for grade level '{grade_level}'. Please enter a valid grade.")
+        return pd.DataFrame()
+
+    # Filter based on Grade Level
+    matching_grade = dataset[dataset["Grade Level"].apply(lambda x: matched_grade in x)]
+
+    # Normalize and fuzzy match subjects
+    possible_subjects = set(subject for subjects in dataset["Subjects"] for subject in subjects)
+    matched_subjects = [fuzzy_match(sub, possible_subjects) for sub in subjects]
+
+    matched_subjects = [sub for sub in matched_subjects if sub]
+
+    if not matched_subjects:
+        print(f"Warning: No close matches found for subjects {subjects}. Please refine your input.")
+        return pd.DataFrame()
+
+    # Filter based on Subjects (at least one match)
+    return matching_grade[matching_grade["Subjects"].apply(lambda x: any(sub in x for sub in matched_subjects))]
+
+def score_programs(user_interest, user_dislikes, filtered_programs):
+    """
+    Scores programs based on how well their descriptions match the user's interest,
+    and penalizes them if they contain disliked elements.
+
+    Parameters:
+    user_interest (str): The user's input describing what they are looking for.
+    user_dislikes (str): The user's input describing what they dislike in a program.
+    filtered_programs (pd.DataFrame): The dataset of programs that match grade and subject.
+
+    Returns:
+    pd.DataFrame: Top 10 highest scoring programs.
+    """
+    if filtered_programs.empty:
+        return pd.DataFrame()
+
+    # Compute sentence embeddings for user interest and dislikes
+    user_interest_embedding = embedding_model.encode(user_interest, convert_to_tensor=True)
+    user_dislike_embedding = embedding_model.encode(user_dislikes, convert_to_tensor=True)
+    
+    descriptions = filtered_programs["Description"].tolist()
+    description_embeddings = embedding_model.encode(descriptions, convert_to_tensor=True)
+
+    # Compute similarity scores
+    interest_scores = util.pytorch_cos_sim(user_interest_embedding, description_embeddings).flatten().tolist()
+    dislike_scores = util.pytorch_cos_sim(user_dislike_embedding, description_embeddings).flatten().tolist()
+
+    # Assign scores & apply penalty for dislikes
+    filtered_programs = filtered_programs.copy()
+    filtered_programs["Score"] = [interest - (dislike * 0.4) for interest, dislike in zip(interest_scores, dislike_scores)]
+
+    # Sort by score and return top 10
+    return filtered_programs.sort_values(by="Score", ascending=False).head(10)
+
+def display_programs(ranked_programs, user_grade, user_subject):
+    """
+    Displays the top 10 ranked programs in a structured format.
+    
+    Parameters:
+    ranked_programs (pd.DataFrame): The ranked programs after scoring.
+    user_grade (str): The user's grade level.
+    user_subject (str): The user's subject of interest.
+    """
+    if ranked_programs.empty:
+        print("\nNo programs matched your criteria. Try adjusting your inputs.")
+        return
+
+    print("\nTop 10 Summer Programs That Match Your Interests:\n")
+
+    col_widths = [50, 20, 20, 30, 10]
+    header = f"{'Program Name':<{col_widths[0]}} {'Grade':<{col_widths[2]}} {'Subject':<{col_widths[3]}} {'Score':<{col_widths[4]}}"
+    print(header)
+    print("=" * sum(col_widths))
+
+    for _, row in ranked_programs.iterrows():
+        program_name = row["Program Name"][:col_widths[0]-3] + "..." if len(row["Program Name"]) > col_widths[0] else row["Program Name"]
+        score = round(row["Score"], 2)
+
+        print(f"{program_name:<{col_widths[0]}} {user_grade:<{col_widths[2]}} {user_subject:<{col_widths[3]}} {score:<{col_widths[4]}}")
+
+def main():
+    file_path = ""
+    dataset = load_dataset(file_path)
+    dataset = preprocess_dataset(dataset)
+
+    print("\nWelcome to the Summer Program Matcher!\n")
+
+    name = input("What's your name? ")
+    gender = input("Enter your gender (Male, Female, Other): ").strip()
+    dataset = filter_gender(dataset, gender)
+
+    grade_level = input("Enter your current grade level: ")
+    subjects_input = input("Enter your subjects of interest: ")
+    user_interest = input("Describe what you're looking for in a program: ")
+    user_dislikes = input("Describe what you dislike in a program: ")
+
+    subjects = [subject.strip() for subject in subjects_input.split(",")]
+
+    filtered_programs = filter_programs(grade_level, subjects, dataset)
+    ranked_programs = score_programs(user_interest, user_dislikes, filtered_programs)
+
+    display_programs(ranked_programs, grade_level, subjects_input)
+
+if __name__ == "__main__":
+    main()
