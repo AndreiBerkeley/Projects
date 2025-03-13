@@ -10,7 +10,7 @@ In some of them, I have deleted specific data in order to protect private inform
 
 2. Combined_Fetcher: This project automates the collection, processing, and analysis of blockchain gaming data from multiple sources such as DappRadar, Artemis, and CoinGecko. It utilizes APIs, web scraping, and data processing techniques with Pandas and OpenPyXL to compile insights into an organized Excel report for further analysis.
 
-3. Sample_Version: This project is a Summer Program Matcher that helps students find the most suitable summer programs based on their grade level, subjects of interest, and personal preferences. It employs fuzzy matching for text processing, NLP-based semantic similarity scoring with Sentence-BERT, and keyword extraction using KeyBERT to rank programs, ensuring personalized recommendations.
+3. SampleVersion: This project is a Summer Program Matcher that helps students find the most suitable summer programs based on their grade level, subjects of interest, and personal preferences. It employs fuzzy matching for text processing, NLP-based semantic similarity scoring with Sentence-BERT, and keyword extraction using KeyBERT to rank programs, ensuring personalized recommendations.
 
 
 
