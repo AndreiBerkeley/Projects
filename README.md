@@ -12,7 +12,9 @@ In some of them, I have deleted specific data in order to protect private inform
 
 3. SampleVersion: This project is a Summer Program Matcher that helps students find the most suitable summer programs based on their grade level, subjects of interest, and personal preferences. It employs fuzzy matching for text processing, NLP-based semantic similarity scoring with Sentence-BERT, and keyword extraction using KeyBERT to rank programs, ensuring personalized recommendations.
 
-4. ManualAnnotations: Create Multi Agent System Manual Taxonomy to help improve general error detection in agent pipelines.
+4. ManualAnnotations: Create a Multi-Agent System Manual Taxonomy to help improve general error detection in agent pipelines.
+
+5. 24615_Reliable_Fine_Grained_Ev.pdf - ICLR 2026 Research Paper Submission.
 
 
 
